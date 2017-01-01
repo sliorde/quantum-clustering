@@ -11,7 +11,7 @@ function [S,dS] = FindEntropyStochastic(data,sigma,x,sz)
 	if isempty(x)
 		x = data;
 	end
-	sz = round(sz*size(data,1));
+	sz = ceil(sz*size(data,1));
 	
 	S = zeros(size(x,1),1);
 	dS = zeros(size(x));

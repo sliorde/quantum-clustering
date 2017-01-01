@@ -142,7 +142,7 @@ function DisplayQC(xHistory,clusters,principalComponents,dataInPCbasis)
 		end
 		figure;
 		axis equal;
-		clrs = myColorMap(max(clusters));
+		clrs = jet(max(clusters));
 		[~,~,tmp] = unique(clusters);
 		clrs = clrs(tmp,:);
 		sc = scatter3(xHistory(:,1,1),xHistory(:,2,1),xHistory(:,3,1),10,clrs,'filled');

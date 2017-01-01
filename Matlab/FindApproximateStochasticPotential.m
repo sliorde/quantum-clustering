@@ -11,7 +11,7 @@ function [V,dV] = FindApproximateStochasticPotential(data,coeff,sigma,x,sz)
 	if isempty(x)
 		x = data;
 	end
-	sz = round(sz*size(data,1));
+	sz = ceil(sz*size(data,1));
 	
 	V = zeros(size(x,1),1);
 	dV = zeros(size(x));

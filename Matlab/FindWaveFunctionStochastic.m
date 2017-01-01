@@ -11,7 +11,7 @@ function [Psi,dPsi] = FindWaveFunctionStochastic(data,sigma,x,sz)
 	if isempty(x)
 		x = data;
 	end
-	sz = round(sz*size(data,1));
+	sz = ceil(sz*size(data,1));
 
 	
 	Psi = zeros(size(x,1),1);

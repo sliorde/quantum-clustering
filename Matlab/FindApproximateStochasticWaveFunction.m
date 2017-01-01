@@ -12,7 +12,7 @@ function [Psi,dPsi] = FindApproximateStochasticWaveFunction(data,coeff,sigma,x,s
 	if isempty(x)
 		x = data;
 	end
-	sz = round(sz*size(data,1));
+	sz = ceil(sz*size(data,1));
 	
 	Psi = zeros(size(x,1),1);
 	dPsi = zeros(size(x));

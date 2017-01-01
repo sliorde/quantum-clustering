@@ -44,7 +44,7 @@ function [x,xHistory] = PerformGDQC(data,sigma,rep,stepSize,clusteringType,recal
 		normalizeGradient = true;		
 	end
 	
-	if ~exist('','var')
+	if ~exist('stochasticSz','var')
 		stochasticSz = [];		
 	end
 	
