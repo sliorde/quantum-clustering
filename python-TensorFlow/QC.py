@@ -1,53 +1,115 @@
-import tensorflow as tf
 import numpy as np
-import time
+import tensorflow as tf
+from tensorflow.examples.tutorials.mnist import input_data
+import matplotlib.pyplot as plt
+import pickle
 
 
-filename = "crabs.dat"
-batch = np.loadtxt(open(filename,"rb"),skiprows=1,usecols = (3,4,5,6,7))
+DATA_TYPE = tf.float32
 
-sess = tf.Session()
+def QC(data,sigma,replicas=None,steps=10000,step_size=None,batch_size=None,how_often_to_test_stop=10,with_display=False,same_batch_for_all=False):
+    if replicas is None:
+        replicas = data
+    number_of_data_points = data.shape[0]
+    number_of_replicas = replicas.shape[0]
+    dimensions = data.shape[1]
 
-data = tf.placeholder(tf.float32,shape=batch.shape)
+    if step_size is None:
+        step_size = sigma/7
 
-SIGMA = tf.constant(value=10.0,shape=[1],name='sigma')
-TWO = tf.constant(2.0)
-TWO_SIGMA_SQUARED = tf.mul(TWO, tf.square(SIGMA))
-ONE_OVER_TWO_SIGMA_SQUARED = tf.inv(TWO_SIGMA_SQUARED)
+    if batch_size is None:
+        batch_size = data.shape[0]
 
-x = tf.Variable(tf.zeros([batch.shape[1]]))
+    inds_to_move_ = tf.placeholder(dtype=tf.int32,shape=(None,),name="inds")
 
-squared_difference = tf.reduce_sum(tf.square(tf.sub(x,data)),reduction_indices=1,name='squared-difference')
-gaussian = tf.exp(tf.mul(ONE_OVER_TWO_SIGMA_SQUARED,tf.neg(squared_difference)),name='Gaussian')
-wave_function = tf.reduce_sum(gaussian,keep_dims=True,name='wave-function')
-laplacian = tf.reduce_sum(tf.mul(gaussian,squared_difference),keep_dims=True,name='Laplacian')
-potential = tf.div(laplacian,wave_function,name='potential')
+    data_ = tf.constant(data, name='data', dtype=DATA_TYPE)
+    replicas_ = tf.get_variable(name='replicas', shape=(number_of_replicas, dimensions), dtype=DATA_TYPE,
+                      initializer=tf.constant_initializer(replicas, dtype=DATA_TYPE))
+    replicas_to_move_ = tf.nn.embedding_lookup(replicas_, inds_to_move_, name="replicas_to_move")
+    if batch_size is None:
+        batch_ = data_
+        squared_distances_ = tf.reduce_sum(tf.square(tf.sub(tf.expand_dims(replicas_to_move_, 1), tf.expand_dims(batch_,0))), axis=2,name='squared_distances')
+    elif same_batch_for_all is True:
+        inds_for_batch_ = tf.random_uniform(shape=(1,batch_size), minval=0,
+                                            maxval=number_of_data_points, dtype=tf.int32, name="inds_for_batch")
+        batch_ = tf.nn.embedding_lookup(data_,inds_for_batch_,name="batch")
+        squared_distances_ = tf.reduce_sum(tf.square(tf.sub(tf.expand_dims(replicas_to_move_, 1), batch_)), axis=2,name='squared_distances')
+    else:
+        inds_for_batch_ = tf.random_uniform(shape=(tf.shape(inds_to_move_)[0], batch_size), minval=0,
+                                            maxval=number_of_data_points, dtype=tf.int32, name="inds_for_batch")
+        batch_ = tf.nn.embedding_lookup(data_,inds_for_batch_,name="batch")
+        squared_distances_ = tf.reduce_sum(tf.square(tf.sub(tf.expand_dims(replicas_to_move_, 1), batch_)), axis=2,
+                                           name='squared_distances')
+    gaussians_ = tf.exp(-1*squared_distances_/(2*sigma**2), name='gaussian')
+    wave_function_ = tf.reduce_sum(gaussians_, name='wave_function',axis=1)
+    laplacian_ = tf.reduce_sum(tf.mul(gaussians_, squared_distances_), name='laplacian',axis=1)
+    potential_ = tf.div(laplacian_, wave_function_, name='potential')
+    loss_ = tf.reduce_sum(potential_)
+    # optimizer_ = tf.train.MomentumOptimizer(learning_rate=step_size,momentum=0.9,use_nesterov=True)
+    optimizer_ = tf.train.GradientDescentOptimizer(learning_rate=step_size,name='optimizer')
+    # optimization_step_ = optimizer_.minimize(loss_,name='optimization_step')
+    gradients_ = tf.gradients(loss_,replicas_,name='gradients')
+    normalized_gradients_ = tf.nn.l2_normalize(gradients_[0] ,dim=1)
+    optimization_step_ = optimizer_.apply_gradients([(normalized_gradients_,replicas_)])
+    #     tf.reduce_sum(tf.square(gradients_),axis=1,name="gradient_norms")
 
-tf.scalar_summary(['potential'],potential)
-tf.histogram_summary('x',x)
+    if with_display:
+        plt.ion()
+        plt.figure()
+        ax1 = plt.axes()
+        sc = plt.scatter(replicas[:,0],replicas[:,1])
+        plt.axis([-2,2,-2,2])
+        # plt.figure()
+        # ax2 = plt.axes()
 
-optimizer = tf.train.GradientDescentOptimizer(0.05)
 
-global_step = tf.Variable(0, name='global-step', trainable=False)
+    with tf.Session() as sess:
+        sess.run(tf.global_variables_initializer())
 
-optimization_step = optimizer.minimize(potential,global_step=global_step)
+        step = 0
+        inds = np.arange(0,replicas.shape[0])
+        previous_potential = np.zeros((replicas.shape[0]))
+        previous_potential.fill(np.inf)
+        while step<steps:
+            print(step)
 
-summary_op = tf.merge_all_summaries()
-sess.run(tf.initialize_all_variables())
-summary_writer = tf.train.SummaryWriter('trainDir', sess.graph)
+            _,potential_value = sess.run([optimization_step_,potential_], feed_dict={inds_to_move_: inds})
+            if ((step%how_often_to_test_stop)==0):
+                prev_inds = inds
+                inds = inds[previous_potential[inds] > potential_value]
+                previous_potential[prev_inds] = potential_value
+                if len(inds) == 0:
+                    break
 
-saver = tf.train.Saver()
+            if with_display:
+                x = sess.run(replicas_)
+                sc.set_offsets(x[:,:2])
+                # plt.sca(ax2)
+                # if np.any(prev_inds==0):
+                #     plt.scatter(step,np.mean(potential_values_for_moving_average[0,:]))
+                #     plt.scatter(step, potential_value[prev_inds==0],c='r')
+                plt.pause(0.0001)
 
-for ii in range(batch.shape[0]):
-    start_time = time.time()
-    x.assign(data[ii, :])
-    _, potential_value = sess.run([optimization_step,potential],feed_dict={data:batch})
-    duration = time.time() - start_time
+            step += 1
+        if with_display:
+            plt.ioff()
+            plt.show()
 
-    if ii % 1 == 0:
-        print('step #' + str(ii) + ':  potential=' + str(potential_value) + '   (' + str(duration) + 'sec)')
-        summary_str = sess.run(summary_op,feed_dict={data:batch})
-        summary_writer.add_summary(summary_str, ii)
-        summary_writer.flush()
+        x = sess.run(replicas_)
+        return x
 
-        saver.save(sess, 'trainDir', global_step=ii)
+
+
+
+if __name__ == "__main__":
+    mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
+    data,y = mnist.train.next_batch(55000)
+
+    # np.random.seed(111)
+    # data = np.random.randn(1000,2)
+
+    x = QC(data,2000,step_size=100,batch_size=1,same_batch_for_all=True,with_display=False,how_often_to_test_stop=1000)
+    with open("out.pickle", 'wb') as f:
+        pickle.dump(x, f)
+
+
